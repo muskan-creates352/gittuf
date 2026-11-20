@@ -6,6 +6,8 @@ package rsl
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1696,6 +1698,61 @@ func TestSkipAllInvalidReferenceEntriesForRef(t *testing.T) {
 		}
 
 		assert.Equal(t, []githash.Hash{toBeSkippedEntry.GetID()}, annotationEntry.RSLEntryIDs)
+	})
+
+	t.Run("ignore entries for other references when walking parent entries", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Cleanup(func() {
+			_ = filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+				if err == nil {
+					_ = os.Chmod(path, 0o777)
+				}
+				return nil
+			})
+		})
+		repo := gitinterface.CreateTestGitRepository(t, tmpDir, false)
+
+		treeBuilder := gitinterface.NewTreeBuilder(repo)
+		emptyTreeHash, err := treeBuilder.WriteTreeFromEntries(nil)
+		require.Nil(t, err)
+
+		// Entry 1: initial main commit (ancestor of final main)
+		mainCommit0, err := repo.Commit(emptyTreeHash, "refs/heads/main", "Main commit 0\n", false)
+		require.Nil(t, err)
+		require.Nil(t, NewReferenceEntry("refs/heads/main", mainCommit0).Commit(repo, false))
+
+		// Entry 2: feature branch commit
+		featureCommit, err := repo.Commit(emptyTreeHash, "refs/heads/feature", "Feature commit\n", false)
+		require.Nil(t, err)
+		require.Nil(t, NewReferenceEntry("refs/heads/feature", featureCommit).Commit(repo, false))
+		featureEntry, err := GetLatestEntry(repo)
+		require.Nil(t, err)
+
+		// Entry 3: main commit 1 (to be rewritten)
+		mainCommit1, err := repo.Commit(emptyTreeHash, "refs/heads/main", "Main commit 1\n", false)
+		require.Nil(t, err)
+		require.Nil(t, NewReferenceEntry("refs/heads/main", mainCommit1).Commit(repo, false))
+		main1Entry, err := GetLatestEntry(repo)
+		require.Nil(t, err)
+
+		// Reset main back to mainCommit0 and commit mainCommit2 (rewriting main1)
+		require.Nil(t, repo.SetReference("refs/heads/main", mainCommit0))
+		mainCommit2, err := repo.Commit(emptyTreeHash, "refs/heads/main", "Main commit 2\n", false)
+		require.Nil(t, err)
+		require.Nil(t, NewReferenceEntry("refs/heads/main", mainCommit2).Commit(repo, false))
+
+		// Run skip-rewritten for main
+		require.Nil(t, SkipAllInvalidReferenceEntriesForRef(repo, "refs/heads/main", false))
+
+		latestEntry, err := GetLatestEntry(repo)
+		require.Nil(t, err)
+
+		annotationEntry, isAnnotation := latestEntry.(*AnnotationEntry)
+		require.True(t, isAnnotation)
+
+		// featureEntry MUST NOT be skipped!
+		assert.NotContains(t, annotationEntry.RSLEntryIDs, featureEntry.GetID())
+		assert.Equal(t, []githash.Hash{main1Entry.GetID()}, annotationEntry.RSLEntryIDs)
 	})
 
 	t.Run("skip multiple entries", func(t *testing.T) {

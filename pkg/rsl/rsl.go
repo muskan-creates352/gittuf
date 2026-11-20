@@ -957,17 +957,17 @@ func SkipAllInvalidReferenceEntriesForRef(storer gitstore.Storer, targetRef stri
 	entriesToSkip := []githash.Hash{}
 
 	for {
-		if entry, ok := iterator.(*ReferenceEntry); ok {
-			isAncestor, err := storer.KnowsCommit(latestEntry.GetTargetID(), entry.TargetID)
+		if entry, ok := iterator.(ReferenceUpdaterEntry); ok && entry.GetRefName() == targetRef {
+			isAncestor, err := storer.KnowsCommit(latestEntry.GetTargetID(), entry.GetTargetID())
 			if err != nil {
 				return err
 			}
 
 			if !isAncestor {
-				slog.Debug("For target ref, found RSL entry pointing to a commit that does not exist in the target ref", "targetRef", targetRef, "entryID", entry.ID, "entryTargetID", entry.TargetID)
-				entriesToSkip = append(entriesToSkip, entry.ID)
+				slog.Debug("For target ref, found RSL entry pointing to a commit that does not exist in the target ref", "targetRef", targetRef, "entryID", entry.GetID(), "entryTargetID", entry.GetTargetID())
+				entriesToSkip = append(entriesToSkip, entry.GetID())
 			} else {
-				slog.Debug("For target ref, found RSL entry pointing to a commit that exists in the target ref, no more commits to skip", "targetRef", targetRef, "entryID", entry.ID, "entryTargetID", entry.TargetID)
+				slog.Debug("For target ref, found RSL entry pointing to a commit that exists in the target ref, no more commits to skip", "targetRef", targetRef, "entryID", entry.GetID(), "entryTargetID", entry.GetTargetID())
 				break
 			}
 		}
